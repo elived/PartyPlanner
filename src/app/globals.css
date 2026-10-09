@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/*
+  Two visual systems live in this app and they are kept strictly apart:
+
+  1. The admin UI — a fixed, accessible slate/violet palette defined below as
+     Tailwind theme tokens. It must stay legible no matter what an organiser
+     picks for their party.
+
+  2. The invitation page — themed at runtime from the database through the
+     --pp-* custom properties set by `themeStyle()` in src/lib/theme.ts. Nothing
+     in this file hard-codes those; they are supplied per event.
+*/
+
+@theme {
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+    A single, visible focus ring for keyboard users everywhere. Tailwind's reset
+    removes the UA outline, and an app people tab through (forms, tables, dialogs)
+    is unusable without putting one back.
+  */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Respect the OS "reduce motion" setting — the countdown and transitions
+     are decorative, and vestibular disorders are not. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Visible only to screen readers; becomes visible when focused (skip links). */
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+/* Themed surface for the invitation page. Consumers set the --pp-* variables. */
+.pp-scope {
+  background-color: var(--pp-bg);
+  color: var(--pp-text);
+  font-family: var(--font-body);
+}
+
+.pp-scope h1,
+.pp-scope h2,
+.pp-scope h3,
+.pp-scope .pp-heading {
+  font-family: var(--font-heading);
+}

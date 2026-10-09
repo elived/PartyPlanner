@@ -1,0 +1,23 @@
+# Local Postgres for development. Production uses a managed database
+# (Neon, Supabase, Vercel Postgres, RDS…) — see the deployment section of README.md.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: party-planner-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: party_planner
+    ports:
+      - "5432:5432"
+    volumes:
+      - party-planner-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d party_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  party-planner-data:

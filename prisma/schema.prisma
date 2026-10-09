@@ -1,0 +1,229 @@
+// Party Planner — data model
+//
+// Design notes
+// ------------
+// * `Event` holds *content* (what the party is). `EventTheme` holds *presentation*
+//   (what it looks like). They are 1-1 but kept apart so the appearance editor can
+//   save without touching event content, and so a future "theme presets" feature can
+//   reuse the same shape.
+// * Theme values are real columns rather than a JSON blob: they are a small, stable,
+//   known set, and columns give us type-safety end-to-end plus cheap validation.
+// * RSVP de-duplication is enforced in the service layer (see src/server/services/rsvp.ts)
+//   because it is an admin-toggleable rule — a hard DB unique constraint would make the
+//   "allow duplicates" mode impossible. A composite index keeps the lookup fast.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Pooled connection, used by the running app. A serverless deployment opens
+  // and drops connections constantly, which exhausts Postgres without a pooler
+  // (PgBouncer, Neon's pooler, Supabase's Supavisor, Prisma Accelerate).
+  url       = env("DATABASE_URL")
+  // Direct connection, used by `prisma migrate` only. Migrations issue DDL and
+  // advisory locks, which transaction-mode poolers do not support — pointing
+  // migrations at the pooler is the classic "migration hangs forever" bug.
+  // Locally the two are the same value.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js (NextAuth) models
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  /// Only set for credentials sign-in. OAuth-only users have a null hash.
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  events   Event[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Domain models
+// ---------------------------------------------------------------------------
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum RsvpStatus {
+  ATTENDING
+  NOT_ATTENDING
+  MAYBE
+}
+
+enum ButtonStyle {
+  SOLID
+  OUTLINE
+  SOFT
+}
+
+enum ButtonShape {
+  SQUARE
+  ROUNDED
+  PILL
+}
+
+model Event {
+  id          String      @id @default(cuid())
+  /// Public URL segment: /event/<slug>. Immutable-ish; changing it breaks shared links.
+  slug        String      @unique
+  status      EventStatus @default(DRAFT)
+
+  title       String
+  description String?     @db.Text
+
+  startsAt    DateTime
+  endsAt      DateTime?
+  /// IANA zone the organiser entered the times in, e.g. "Europe/Oslo".
+  timezone    String      @default("Europe/Oslo")
+
+  locationName    String?
+  locationAddress String?
+  locationUrl     String?
+
+  bannerImageUrl String?
+  logoUrl        String?
+
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+
+  // --- RSVP configuration -------------------------------------------------
+  rsvpDeadline           DateTime?
+  /// Optional cap on total expected attendees across all ATTENDING RSVPs.
+  maxGuests              Int?
+  maxAttendeesPerRsvp    Int       @default(5)
+  preventDuplicateEmails Boolean   @default(true)
+  /// When true a repeat submission from the same email updates the existing RSVP
+  /// instead of being rejected. Ignored unless preventDuplicateEmails is true.
+  allowRsvpUpdates       Boolean   @default(true)
+  collectPhone           Boolean   @default(true)
+  collectDietary         Boolean   @default(true)
+  collectMessage         Boolean   @default(true)
+  showCountdown          Boolean   @default(true)
+
+  // --- Notifications ------------------------------------------------------
+  notifyOnRsvp Boolean @default(true)
+  /// Falls back to the owner's account email when null.
+  notifyEmail  String?
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  theme EventTheme?
+  rsvps Rsvp[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, createdAt])
+  @@map("events")
+}
+
+model EventTheme {
+  id      String @id @default(cuid())
+  eventId String @unique
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  primaryColor    String @default("#7C3AED")
+  secondaryColor  String @default("#EC4899")
+  backgroundColor String @default("#FAF5FF")
+  surfaceColor    String @default("#FFFFFF")
+  textColor       String @default("#1F1235")
+
+  /// Key into FONT_OPTIONS (src/lib/fonts.ts), not a raw font stack.
+  bodyFont    String @default("inter")
+  headingFont String @default("playfair")
+
+  buttonStyle ButtonStyle @default(SOLID)
+  buttonShape ButtonShape @default(ROUNDED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("event_themes")
+}
+
+model Rsvp {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  name  String
+  /// Stored lower-cased and trimmed so de-duplication is case-insensitive.
+  email String
+  phone String?
+
+  status         RsvpStatus
+  /// Includes the respondent. Forced to 0 for NOT_ATTENDING by the service layer.
+  attendeesCount Int        @default(1)
+
+  dietaryRestrictions String? @db.Text
+  message             String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventId, email])
+  @@index([eventId, createdAt])
+  @@index([eventId, status])
+  @@map("rsvps")
+}

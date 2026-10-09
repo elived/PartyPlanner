@@ -1,0 +1,25 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Every .env variant except the committed example. `.env.*.local` alone would
+# not have caught `.env.production`, which is exactly the one that hurts.
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+.DS_Store
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Uploaded media when STORAGE_DRIVER=local
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# Data directory for the no-Docker dev database (npm run db:local)
+/.pgdata/
